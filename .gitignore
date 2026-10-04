@@ -1,0 +1,39 @@
+# Unreal generated / local folders
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+.vs/
+.idea/
+.vscode/
+
+# Plugin build outputs
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
+
+# IDE / project files (regenerated from the .uproject)
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.xcodeproj
+*.xcworkspace
+
+# Compiled / packaged
+*.pdb
+*.dll
+*.exe
+*.ipa
+*.apk
+*.pak
+
+# Per-user editor content
+Content/Developers/
+Content/Collections/
+
+# OS
+Thumbs.db
+.DS_Store
