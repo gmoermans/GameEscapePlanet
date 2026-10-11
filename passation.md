@@ -1,85 +1,39 @@
 # Passation - PlanetEscape (UE 5.8, Blueprint only)
 
-Handoff for a new chat. Written 2026-10-10. Branch `turret-targeting`, **nothing committed** (user asked to ask before commit/push).
+Handoff for a new chat. Updated 2026-10-11. Branch `turret-targeting`, last pushed commit `f51f702` (V0.1 = `564bd77`).
+Not committed yet: `Docs/class-diagram.md`, this file.
 
-## 1. Blocking issue at handoff
-The Unreal editor MCP server (`unreal-mcp`, `http://127.0.0.1:8000/mcp`) was **ECONNREFUSED** for the whole last chat, so no Blueprint work could be done.
-Before anything else: editor open on PlanetEscape1, MCP plugin enabled, then (re)connect with `/mcp` or start the chat after the editor is up. Check with a trivial call (`list_toolsets`).
-Also read `memory/unreal-mcp-workflow.md` (auto-memory): it lists every tool quirk learned (DSL pitfalls, RPC flags via Slate inspector, save_assets, modal dialog freeze, ...).
+## 0. How to start the next chat
+1. Open the editor on PlanetEscape1 BEFORE starting the chat (MCP server `unreal-mcp`, http://127.0.0.1:8000/mcp). If a call fails with ECONNREFUSED, reconnect with `/mcp`.
+2. Tell Claude: "Read passation.md, Docs/class-diagram.md and the memory files, then continue."
+3. Auto-memory (`~/.claude/projects/.../memory/`) holds the tool quirks (`unreal-mcp-workflow.md`) - read it first.
+4. Ask before commit/push. Replies in English, concise. Everything tunable must be a variable. Server-authoritative, Blueprint only.
 
-## 2. Task to do next: game setup / difficulty menu + super monster
+## 1. What exists (all saved + pushed)
+Architecture diagram: `Docs/class-diagram.md` (Mermaid). Code docs: `Docs/code-docs.html` (regenerate with `Docs/generate.ps1`).
 
-### 2.1 Where the menu appears
-- Show a "Game setup" panel after the user clicks **Solo** (standalone) or **Host** in `WBP_MainMenu`; **Join** does not show it (only the host's settings matter).
-- There is **no multiplayer lobby** in the project. Flow today: Solo = `open Lvl_<map>`, Host = `open Lvl_<map>?listen`, Join = `open <ip>`.
-- A **Start** button opens the map with the chosen values as URL options; **Back** returns to the main menu.
+- **Core loop**: map generated from seed (`BP_MapGenerator`, trees/rocks/plants/matter), ship (`BP_Ship`, tank MatterGoal, hull), hordes of monsters (`BP_Spawning`), extraction (`BP_Extractor`, `BP_MatterSource`), gun, constructor (buildables, turrets with XP/upgrade), ship turret + scout (`BP_ShipTurret`, `BP_ScoutShip`), jetpack, death/respawn.
+- **Menu**: main menu with map selector -> Solo/Host opens `WBP_GameSetup` (difficulty presets Easy/Middle/Hard/Nightmare/Custom, saved in `BP_PlayerSettingsSave`) -> `open Lvl_X?listen?SetupTime=...?Special=...`. Join = IP only. No real lobby yet.
+- **Display**: first run applies exclusive fullscreen at max supported resolution (`BP_MenuPlayerController.InitDisplay`, marker slot `DisplayInit`).
+- **Special monsters**: `BP_SuperMonster` (blue, 2x, 200 hp, instant-kills players, 50 dps on ship) and `BP_ScreamingMonster` (red, 50 hp, 25% speed, targets ship only, laser 10 s on / 30 s reload, 50 dps, 50 m range). Spawned alternately (`SpecialCounter`), share = `SpecialPercent` (10%) of each horde, min 1.
+- **Game over**: hull <= 0 -> `WBP_GameOver` for everyone, monsters destroyed, spawning stopped, button "Main menu"/"Return to lobby" (`open Lvl_MainMenu`).
+- **Command panel**: `BP_CommandPanel` spawned beside the ship (`PanelOffset` 0,-650,0). E within 75 cm of its surface and aiming -> top-down camera + crosshair cursor, left click = missile (`BP_MissileStrike`): costs 100 matter from the tank, cooldown 180 s, marker, sound at 5 s, impact at 10 s (800 cm radius, 1000 dmg to monsters only). Target is sent as the cursor ray in control rotation (RPCs have no params through the tools).
+- **Input contexts**: On foot / Building / Turret-Scout / Panel / Menu are separated (guards in ServerInteract, ServerStartUse, tool/buildable switching, build preview, jetpack, pause menu). Hold E to deposit, release stops; MBL while depositing deposits everything at once.
+- **FX/sound**: `BP_ImpactFX` explosion on gun hits and laser hits (server spawned, replicated). Sound classes `SC_Players`, `SC_Ship` in `/Game/PlanetEscape/Sounds`.
+- **Decor**: `BP_EnvironmentElement` has `DecorVariants`, pivot, deterministic random rotation (hash of location). Meshes from `/Game/ImportFromBlender/Environment/{Plants,Rocks,Threes}` and `/MatterSource`. Matter sources use `MeshVariants`, full random rotation, `VisualFit`.
 
-### 2.2 Difficulty presets (user's table)
-| Mode | Setup time (s) | First horde size | Time between hordes (s) | Increment per horde | Special monsters |
-|---|---|---|---|---|---|
-| Easy | 180 | 10 | 120 | 10 | false |
-| Middle | 150 | 15 | 100 | 15 | false |
-| Hard | 100 | 30 | 90 | 30 | true |
-| Nightmare | 0 | 50 | 60 | 50 | true |
-| Custom | all editable via the menu (Prev/Next rows like WBP_Options) | | | | |
+## 2. Open items / ideas (none blocking)
+- **Aiming accuracy** (user report): turret/scout shells and laser fly parallel to the view from the muzzle, not toward the crosshair point; server aim is compressed. Fix = trace from camera, aim pivot at hit point, send full-precision aim (like the panel). Also the HUD "+" glyph may be off-centre; monsters are hit through the capsule, not the mesh.
+- **Menu buttons not triggering correctly** (user report, undiagnosed): ask which menu, offset direction, and whether it started after InitDisplay (delete save slot `DisplayInit` to compare).
+- HUD hint text still says "E again to stop" (now hold E). Panel HUD shows "Weapon: MISSILE" placeholder; mouse-wheel weapon selection not implemented.
+- Real lobby (map + difficulty chosen in a room, ready/start) not built.
+- Panel position, rock/tree/plant fit values and offsets are tuned to the current 3 meshes; new meshes should have the Blender origin at the base centre (or compute offsets from bounds).
+- Mesh collision of imported rocks/trees not verified; generate convex collision if players walk through.
+- Super/screaming monsters have no sounds; impact FX silent.
+- Nothing from the last sessions has been play-tested in PIE (InitDisplay would resize the editor window; test in standalone).
 
-"Level" = difficulty level only (user confirmed; **no extra maps**).
-
-### 2.3 How values reach the game
-- `BP_PE_GameMode.SpawnSpawning` already reads URL options and writes them into the spawned `BP_Spawning`: `SetupTime`, `HordeInterval`, `FirstHorde`, `HordeIncrement`, `NumberOfHordes` (the last line was truncated when read - **verify its exact option name**).
-- Menu builds e.g. `open Lvl_Flat?listen?SetupTime=150?HordeInterval=100?FirstHorde=15?HordeIncrement=15?NumberOfHordes=8?Special=0`.
-- Add new options to `SpawnSpawning`: `Special` (bool) and, for Custom, `SpecialPercent`.
-- Remember the last choice in the `PlayerSettings` save (`BP_PlayerSettingsSave`), like the other options.
-- Defaults shown in the menu = current `BP_Spawning` defaults.
-
-### 2.4 BP_Spawning changes
-- New variables (instance editable, category e.g. `Special`):
-  - `bSpecialMonsters` (bool, default false)
-  - `SpecialPercent` (float, default **10.0** = 10% of each horde) - user explicitly wants this as a variable on `BP_Spawning`.
-  - `MinSpecialPerHorde` (int, default 1) - at least 1 special per horde when specials are enabled.
-  - `SpecialMonsterClass` (class ref -> BP_SuperMonster) if convenient.
-- In `SpawnHorde` / `SpawnOneMonster`: if `bSpecialMonsters`, `specialCount = max(MinSpecialPerHorde, round(NextHordeSize * SpecialPercent/100))`; spawn that many `BP_SuperMonster`, the rest `BP_Monster`.
-- Existing facts: `SpawnHorde` loops `NextHordeSize` times calling `SpawnOneMonster`, increments `CurrentHorde` (RepNotify -> ship siren), then schedules the next horde. HUD `WBP_HUD.UpdateWaveText` reads CurrentHorde / NextHordeSize / NextHordeTime.
-
-### 2.5 Super monster (child class of BP_Monster, only one special type for now)
-Class `BP_SuperMonster` in `/Game/PlanetEscape/Monsters/`:
-- **Blue material** instead of green: new MI from the monster parent material (see `MI_Monster`, `MI_MonsterLimb`; parent `M_PE_Flat` has params `Color`, `Emissive`, `Roughness`) e.g. `MI_SuperMonster`, blue Color. The monster body/limbs use the user's Blender meshes in `/Game/ImportFromBlender` (Monsterface etc., body rotated yaw 90).
-- **Mesh x2** (actor/mesh scale 2; adjust capsule accordingly).
-- **200 health** (`MaxHealth` var on BP_Monster is instance-editable - set in child CDO; remember: child CDOs do not inherit later parent CDO edits).
-- **Speed = 75% of a normal monster** (`MoveSpeed` of parent x 0.75; set in child CDO or computed at BeginPlay from parent default).
-- **Ship**: 50 damage **per second** on contact (BP_Monster.TryAttack uses `Damage` + `AttackCooldown`; e.g. damage 50 x cooldown, or a dedicated tick while overlapping).
-- **Players**: contact = **instant kill** of any player -> call `BP_PE_Character.Die` (server) directly (it exits the turret first, drops matter per `bLoseMatterOnDeath`, schedules respawn). Do not go through TakeHit damage.
-- Make the numbers variables on the child class (user always asks for editable variables).
-- `BP_Monster.TryAttack(Other)` currently: server only, cooldown, cast to `BP_PE_Character` -> ApplyDamage; CastFailed -> `BP_Ship` ApplyDamage. Override by adding an `Attack` hook or a child event; function overrides via tools are refused ("event-shape") - use `add_event` + helper function, or put the branching in the parent with a virtual-like variable (`bInstantKill`, `ShipDps`).
-
-### 2.6 Menu UI implementation notes
-- New widget `WBP_GameSetup` (UMG toolset) or extra panel inside `WBP_MainMenu`; reuse row pattern of `WBP_Options` (HorizontalBox: label, Prev button, value text, Next button; `OnClicked(BtnXPrev/Next)` -> `Cycle(Key, Delta)` -> `RefreshAll`).
-- Difficulty row cycles Easy/Middle/Hard/Nightmare/Custom; the numeric rows are editable only when Custom (otherwise they show the preset values, read-only).
-- `WBP_MainMenu` already has `RunCommand(Command)` (echoes and executes console command), `GetSelectedLevel()` -> `Lvl_<name>`, map list from `/Game/PlanetEscape/Maps` (all `Lvl_*` except MainMenu / `_BuiltData`).
-
-## 3. State of the project (what exists, all saved to disk, uncommitted)
-Features built in earlier chats (details in `Docs/code-docs.html`, regenerate with `Docs/generate.ps1`):
-- Turret XP/levels (100/200/400/1000), E to upgrade (price), +15% size/level, 3D XP bar label.
-- Scout ship (`BP_ScoutShip`, child of `BP_ShipTurret`): circular flight, matter burn, replicated manual position + client smoothing.
-- Ship turret: cannon aims at camera direction, shells/laser from a virtual nozzle (`NozzleForward`), `MinPitch`.
-- Extractor upgrades (every 200 extracted: +30% rate/range, +10 max matter; at 1000 two sources at once), HUD info lines.
-- Matter blocks have a BlockAll collider (camera ignored).
-- Sounds in `/Game/sounds` (run, jetpack, canon, laser, extract, hordeSiren) with spatial attenuation overrides per audio component.
-- Jetpack: hold key (default LeftShift, rebindable in Options via InputKeySelector, stored in save game), burns 2 **carried matter**/s, x4 speed, hovers 75 above ground, server RPCs `SRV_JetpackOn/Off`.
-- Gradual unloading at ship (E toggles, `DepositRate` 50/s), death + respawn (`RespawnDelayPerDeath` 10s x deaths, `bLoseMatterOnDeath`), game ends only when ship hull is destroyed.
-- Defaults: fullscreen 2560x1440, 35% render scale (`Config/DefaultGameUserSettings.ini`); ship `MatterGoal` 2000.
-- Docs: `Docs/code-docs.html`, `Docs/descriptions.json` (hand-written comments), `Docs/doc_dump.json` (structure export), `Docs/generate.ps1`.
-
-Git: modified/untracked Blueprints and assets are not committed (`BP_ScoutShip`, `MI_Xp*`, `Content/sounds/`, `Docs/` are untracked). **Ask before committing/pushing.**
-
-## 4. Practical reminders for the next session
-- Save assets explicitly after each batch: `AssetTools.save_assets {asset_paths:[...]}` (unsaved edits are lost if the editor crashes; do not edit Blueprints during PIE).
-- DSL gotchas: first positional arg goes to `self`; bool literals as first positional go to `self` (use `:bInReplicates true`); nested `(+ str str)` fails -> `Utilities|String|Append`; `Utilities|IsValid` terminates flow (put last); never rewrite `BP_PE_Character.EventGraph` with DSL (hand-wired Enhanced Input nodes); after a rewrite delete orphan nodes (exec input unconnected).
-- Custom events are called from functions as `CallFunction|SRVxxx` (underscores removed). New Run-on-Server events need flags set through the Slate inspector (see memory file).
-- Test pattern: temporary `BP_TestDriver` actor with timers + PrintString, run PIE, read `LogBlueprintUserMessages`, then delete the actor and asset.
-- A modal editor dialog titled "Message" freezes all MCP calls; close it (WM_CLOSE) from PowerShell.
-- User preferences: everything tunable must be a variable; keep gameplay server-authoritative; Blueprint-only; user is French-speaking (replies in English so far); concise answers; don't commit without asking.
-
-## 5. Open questions (none blocking)
-- Exact count of special monsters is decided (10% of horde, min 1, variable). 
-- Whether to show monster stats (health/speed/damage) in the menu: not requested, leave out unless asked.
+## 3. Practical reminders
+- Save assets after each batch (`AssetTools.save_assets`); don't edit Blueprints during PIE.
+- `call_tool` needs `toolset_name` + short `tool_name`; inside `execute_tool_script` use full dotted names; `set_properties` takes `values` as a JSON string.
+- DSL: first positional arg goes to `self` (use `:Param`), bool getters drop the `b`, spawn nodes like `SpawnActorBPX` can't be created fresh (use `SpawnActorfromClass` + cast), `CallFunction|X` is ambiguous with same-named functions in other BPs, rewriting a graph leaves orphan nodes. Custom RPC flags only via the Slate inspector (see memory file).
+- Never rewrite `BP_PE_Character.EventGraph` with DSL; edit by node surgery (create_node + connect_pins).
