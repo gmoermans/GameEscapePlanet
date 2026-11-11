@@ -210,3 +210,29 @@ stateDiagram-v2
   OnFoot --> Menu : Esc
   Menu --> OnFoot : Esc
 ```
+
+## 4. Classes, guns and decor (added 2026-11)
+
+Details of each flow: see `Docs/blueprint-flows.md`.
+
+```mermaid
+classDiagram
+BP_PE_Character <|-- BP_PE_Soldier
+BP_PE_Character <|-- BP_PE_Worker
+BP_PE_Character <|-- BP_PE_Scout
+BP_PE_Character <|-- BP_PE_Tank
+BP_PE_Character <|-- BP_PE_Joker
+BP_Gun <|-- BP_AutomaticGun
+BP_Gun <|-- BP_GrenadeLauncher
+BP_AutomaticGun <|-- BP_SoldierRifle
+BP_AutomaticGun <|-- BP_TankMinigun
+BP_Extractor <|-- BP_WorkerExtractor
+BP_GrenadeLauncher ..> BP_Grenade : spawns
+BP_PE_Scout ..> BP_MatterOrb : G drops matter
+BP_PE_GameMode ..> BP_ClassSave : reads LobbyClass_name
+BP_LobbyPlayerController ..> BP_ClassSave : writes LobbyClass_name
+BP_LobbyPlayerController ..> WBP_LobbyWait : clients
+BP_EnvironmentElement <|-- BP_Tree
+BP_EnvironmentElement <|-- BP_Rock
+BP_EnvironmentElement <|-- BP_Plant
+```
